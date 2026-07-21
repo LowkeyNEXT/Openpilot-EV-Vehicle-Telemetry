@@ -2,8 +2,8 @@
 
 EV Vehicle Telemetry is a small, authenticated, read-only telemetry service for
 comma devices. This repository is [stock openpilot v0.11.1](OPENPILOT.md) plus
-one telemetry implementation commit and one documentation commit, so the code
-delta remains easy to inspect independently from this README.
+a small telemetry implementation/hardening stack and separate documentation
+commits, so the code delta remains easy to inspect independently from this README.
 
 It reads generic energy fields already produced by the vehicle `CarState`,
 normalizes and caches the latest valid EV snapshot, and makes that snapshot
@@ -98,8 +98,9 @@ The request body is a versioned envelope:
 ```
 
 Unavailable optional fields are omitted. The sender follows no redirects, uses
-short connect/response timeouts, and retries failures with bounded exponential
-backoff. The bearer token is never placed in the JSON body or diagnostic status.
+short connect/response timeouts, streams and discards the response body, and
+retries failures with bounded exponential backoff. The bearer token is never
+placed in the JSON body, exception text, or diagnostic status.
 See the full [backend contract and cadence controls](docs/ev-vehicle-telemetry.md#custom-backend-sending).
 
 ## Use with RangeBridge
@@ -178,6 +179,12 @@ global and failed-auth rate limiting, a bounded listen queue, and a one-second
 disk-read cache. The daemon and tunnel processes run at nice level 19. This is a
 non-critical convenience service and intentionally favors bounded resource use
 over availability under load.
+
+All persistent credentials and setup-session records are owner-only (`0600`) in
+owner-only directories (`0700`). Public status/configuration output is redacted,
+the launch command never prints the QR capability, and the browser receives the
+short-lived setup capability only as an HttpOnly, SameSite cookie after opening
+the QR URL.
 
 Full mode configuration, FRP gateway/DNS automation, API details, and security
 behavior are in [the operator guide](docs/ev-vehicle-telemetry.md).
