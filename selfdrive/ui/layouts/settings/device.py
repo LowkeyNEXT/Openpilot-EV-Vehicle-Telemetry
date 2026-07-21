@@ -1,5 +1,6 @@
 import os
 import math
+from urllib.parse import urlsplit
 
 from cereal import messaging, log
 from openpilot.common.basedir import BASEDIR
@@ -17,10 +18,13 @@ from openpilot.system.ui.widgets.html_render import HtmlModal
 from openpilot.system.ui.widgets.list_view import text_item, button_item, dual_button_item
 from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
 from openpilot.system.ui.widgets.scroller_tici import Scroller
+from openpilot.system.vehicle_telemetry.qr import TelemetryQRDialog
+from openpilot.system.vehicle_telemetry.setup import launch_vehicle_telemetry_setup
 
 # Description constants
 DESCRIPTIONS = {
   'pair_device': tr_noop("Pair your device with comma connect (connect.comma.ai) and claim your comma prime offer."),
+  'ev_vehicle_telemetry': tr_noop("Configure authenticated, read-only EV telemetry. The API remains available while driving."),
   'driver_camera': tr_noop("Preview the driver facing camera to ensure that driver monitoring has good visibility. (vehicle must be off)"),
   'reset_calibration': tr_noop("openpilot requires the device to be mounted within 4° left or right and within 5° up or 9° down."),
   'review_guide': tr_noop("Review the rules, features, and limitations of openpilot"),
@@ -57,6 +61,8 @@ class DeviceLayout(Widget):
       text_item(lambda: tr("Dongle ID"), self._params.get("DongleId") or (lambda: tr("N/A"))),
       text_item(lambda: tr("Serial"), self._params.get("HardwareSerial") or (lambda: tr("N/A"))),
       self._pair_device_btn,
+      button_item(lambda: tr("EV Vehicle Telemetry"), lambda: tr("SET UP"), lambda: tr(DESCRIPTIONS['ev_vehicle_telemetry']),
+                  callback=self._start_ev_vehicle_telemetry_setup, enabled=ui_state.is_offroad),
       button_item(lambda: tr("Driver Camera"), lambda: tr("PREVIEW"), lambda: tr(DESCRIPTIONS['driver_camera']),
                   callback=lambda: gui_app.push_widget(DriverCameraDialog()), enabled=ui_state.is_offroad),
       self._reset_calib_btn,
@@ -67,6 +73,15 @@ class DeviceLayout(Widget):
       self._power_off_btn,
     ]
     return items
+
+  def _start_ev_vehicle_telemetry_setup(self):
+    try:
+      session = launch_vehicle_telemetry_setup()
+      parsed = urlsplit(session["url"])
+      gui_app.push_widget(TelemetryQRDialog(session["url"], f"{parsed.scheme}://{parsed.netloc}"))
+    except Exception as error:
+      cloudlog.warning(f"EV Vehicle Telemetry setup launch failed: {error}")
+      gui_app.push_widget(alert_dialog(tr(str(error))))
 
   def _offroad_transition(self):
     self._power_off_btn.action_item.right_button.set_visible(ui_state.is_offroad())
