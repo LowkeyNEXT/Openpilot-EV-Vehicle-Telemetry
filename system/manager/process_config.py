@@ -112,6 +112,7 @@ procs = [
   PythonProcess("uploader", "system.loggerd.uploader", always_run),
   PythonProcess("statsd", "system.statsd", always_run),
   PythonProcess("feedbackd", "selfdrive.ui.feedback.feedbackd", only_onroad),
+  PythonProcess("vehicle_telemetryd", "system.vehicle_telemetry.daemon", always_run, nice=19),
 
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
+from openpilot.common.swaglog import cloudlog
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavRawScrollPanel, NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigCircleButton
@@ -20,6 +21,8 @@ from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.system.ui.widgets.html_render import HtmlModal, HtmlRenderer
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
+from openpilot.system.vehicle_telemetry.qr import TelemetryQRDialogMici
+from openpilot.system.vehicle_telemetry.setup import launch_vehicle_telemetry_setup
 
 
 class ReviewTermsPage(TermsPage, NavScroller):
@@ -162,6 +165,22 @@ class PairBigButton(BigButton):
     else:
       dlg = PairingDialog()
     gui_app.push_widget(dlg)
+
+
+class EVVehicleTelemetryBigButton(BigButton):
+  def __init__(self):
+    super().__init__("EV vehicle\ntelemetry", "scan QR", gui_app.texture("icons_mici/settings/device/info.png", 64, 64))
+    self.set_enabled(lambda: ui_state.is_offroad())
+    self.set_click_callback(self._start_setup)
+
+  @staticmethod
+  def _start_setup():
+    try:
+      session = launch_vehicle_telemetry_setup()
+      gui_app.push_widget(TelemetryQRDialogMici(session["url"]))
+    except Exception as error:
+      cloudlog.warning(f"EV Vehicle Telemetry setup launch failed: {error}")
+      gui_app.push_widget(BigDialog("", str(error)))
 
 
 UPDATER_TIMEOUT = 10.0  # seconds to wait for updater to respond
@@ -341,6 +360,7 @@ class DeviceLayoutMici(NavScroller):
       DeviceInfoLayoutMici(),
       UpdateOpenpilotBigButton(),
       PairBigButton(),
+      EVVehicleTelemetryBigButton(),
       review_training_guide_btn,
       driver_cam_btn,
       terms_btn,
