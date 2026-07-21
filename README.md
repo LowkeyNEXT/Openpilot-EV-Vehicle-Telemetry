@@ -1,111 +1,203 @@
-<div align="center" style="text-align: center;">
+# EV Vehicle Telemetry
 
-<h1>openpilot</h1>
+EV Vehicle Telemetry is a small, authenticated, read-only telemetry service for
+comma devices. This repository is [stock openpilot v0.11.1](OPENPILOT.md) plus
+one telemetry implementation commit and one documentation commit, so the code
+delta remains easy to inspect independently from this README.
 
-<p>
-  <b>openpilot is an operating system for robotics.</b>
-  <br>
-  Currently, it upgrades the driver assistance system in 300+ supported cars.
-</p>
+It reads generic energy fields already produced by the vehicle `CarState`,
+normalizes and caches the latest valid EV snapshot, and makes that snapshot
+available to apps such as [RangeBridge](https://github.com/LowkeyNEXT/RangeBridge).
+It never sends CAN, changes controls, or participates in actuation.
 
-<h3>
-  <a href="https://docs.comma.ai">Docs</a>
-  <span> · </span>
-  <a href="https://docs.comma.ai/contributing/roadmap/">Roadmap</a>
-  <span> · </span>
-  <a href="https://github.com/commaai/openpilot/blob/master/docs/CONTRIBUTING.md">Contribute</a>
-  <span> · </span>
-  <a href="https://discord.comma.ai">Community</a>
-  <span> · </span>
-  <a href="https://comma.ai/shop">Try it on a comma four</a>
-</h3>
+## What it provides
 
-Quick start: `bash <(curl -fsSL openpilot.comma.ai)`
+- state of charge, range when supported, charging/plug state, speed, and freshness;
+- an authenticated `GET /api/vehicle/telemetry` endpoint that remains available
+  while driving;
+- cache-only, custom-backend send-only, LAN, personal Tailscale Funnel, and
+  self-hosted FRP modes;
+- bounded custom HTTPS sending that can also run alongside an API access mode;
+- a temporary dependency-free setup page launched by QR from comma 3/3X and
+  comma 4 Device settings;
+- low-priority processes, bounded request workers, rate limits, short timeouts,
+  and owner-only secrets/cache files.
 
-[![openpilot tests](https://github.com/commaai/openpilot/actions/workflows/tests.yaml/badge.svg)](https://github.com/commaai/openpilot/actions/workflows/tests.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![X Follow](https://img.shields.io/twitter/follow/comma_ai)](https://x.com/comma_ai)
-[![Discord](https://img.shields.io/discord/469524606043160576)](https://discord.comma.ai)
+The network is off by default. The daemon still maintains the last valid local
+snapshot, but it exposes no endpoint until the owner chooses a mode.
 
-</div>
+## Quick setup
 
-<table>
-  <tr>
-    <td><a href="https://youtu.be/NmBfgOanCyk" title="Video By Greer Viau"><img src="https://github.com/commaai/openpilot/assets/8762862/2f7112ae-f748-4f39-b617-fabd689c3772"></a></td>
-    <td><a href="https://youtu.be/VHKyqZ7t8Gw" title="Video By Logan LeGrand"><img src="https://github.com/commaai/openpilot/assets/8762862/92351544-2833-40d7-9e0b-7ef7ae37ec4c"></a></td>
-    <td><a href="https://youtu.be/SUIZYzxtMQs" title="A drive to Taco Bell"><img src="https://github.com/commaai/openpilot/assets/8762862/05ceefc5-2628-439c-a9b2-89ce77dc6f63"></a></td>
-  </tr>
-</table>
+1. Install this branch as a full openpilot fork. Comma's standard
+   `installer.comma.ai/<owner>/<branch>` form assumes the GitHub repository is
+   named `openpilot`. It works as `installer.comma.ai/<owner>/main` when this
+   project is mirrored at `<owner>/openpilot` or that path is a GitHub rename
+   redirect. For this repository name, use the full repository URL from a shell
+   as shown below.
+2. Park and connect both the comma and phone to the same Wi-Fi.
+3. On the comma, open **Settings → Device → EV Vehicle Telemetry → Set Up** and
+   scan the QR code.
+4. Choose **Tailscale** for a stable public HTTPS URL owned by your personal
+   Tailscale account, **Custom backend** for outbound-only delivery,
+   **This Wi-Fi only** for LAN access, or **No network** for cache-only operation.
+5. For Tailscale, complete the owner login and one-time Funnel approval. Copy
+   the generated fetch token when it appears.
 
+Direct install from a repository that is not named `openpilot`:
 
-Using openpilot in a car
-------
+```sh
+cd /data
+mv openpilot openpilot.backup
+git clone --recurse-submodules --shallow-submodules -b main \
+  https://github.com/LowkeyNEXT/Openpilot-EV-Vehicle-Telemetry.git openpilot
+sudo reboot
+```
 
-To use openpilot in a car, you need four things:
-1. **Supported Device:** a comma four, available at [comma.ai/shop/comma-four](https://www.comma.ai/shop/comma-four).
-2. **Software:** The setup procedure for the comma four allows users to enter a URL for custom software. Use the URL `openpilot.comma.ai` to install the release version.
-3. **Supported Car:** Ensure that you have one of [the 300+ supported cars](docs/CARS.md).
-4. **Car Harness:** You will also need a [car harness](https://comma.ai/shop/car-harness) to connect your comma four to your car.
+Keep the backup until the new branch has booted successfully. The upstream
+[fork installer documentation](https://github.com/commaai/openpilot/wiki/Forks)
+explains the hardcoded `openpilot` repository-name assumption.
 
-We have detailed instructions for [how to install the harness and device in a car](https://comma.ai/setup). Note that it's possible to run openpilot on [other hardware](https://blog.comma.ai/self-driving-car-for-free/), although it's not plug-and-play.
+Only the configuration page is parked/offroad-only. It closes after ten minutes,
+when setup finishes, or when the vehicle starts. The low-priority daemon,
+authenticated read-only API, and custom sender continue to run onroad.
 
+## Send to a custom backend
 
-### Branches
+Choose **Custom backend** in the QR setup page to operate outbound-only, without
+opening an inbound API or configuring DNS. Enter an HTTPS endpoint, a bearer
+token of at least 32 characters, and optional vehicle ID/name. The same sender
+can be enabled alongside LAN, Tailscale, FRP, or a fork-provided access mode by
+setting the independent `push` configuration.
 
-Running `master` and other branches directly is supported, but it's recommended to run one of the following prebuilt branches:
+Your backend needs to:
 
-| comma four branch      | comma 3X branch        | URL                                    | description                                                                         |
-|------------------------|------------------------|----------------------------------------|-------------------------------------------------------------------------------------|
-| `release-mici`         | `release-tizi`         | openpilot.comma.ai                     | This is openpilot's release branch.                                                 |
-| `release-mici-staging` | `release-tizi-staging` | openpilot-test.comma.ai                | This is the staging branch for releases. Use it to get new releases slightly early. |
-| `nightly`              | `nightly`              | openpilot-nightly.comma.ai             | This is the bleeding edge development branch. Do not expect this to be stable.      |
-| `nightly-dev`          | `nightly-dev`          | installer.comma.ai/commaai/nightly-dev | Same as nightly, but includes experimental development features for some cars.      |
+- accept `POST` over HTTPS at the configured URL;
+- validate `Authorization: Bearer <token>`;
+- parse `Content-Type: application/json` and ignore fields it does not use;
+- return any `2xx` response after accepting the event;
+- tolerate a possible duplicate after an ambiguous network failure, preferably
+  deduplicating on `vehicleId` plus `sentAt`.
 
-To start developing openpilot
-------
+The request body is a versioned envelope:
 
-openpilot is developed by [comma](https://comma.ai/) and by users like you. We welcome both pull requests and issues on [GitHub](http://github.com/commaai/openpilot).
+```json
+{
+  "schemaVersion": 1,
+  "vehicleId": "my-ev",
+  "sentAt": 1784235068410,
+  "telemetry": {
+    "schemaVersion": 1,
+    "source": "openpilot carState",
+    "updatedAt": 1784235068.41,
+    "stateOfChargePercent": 77.5,
+    "distanceToEmptyKilometers": 408.0,
+    "isCharging": false,
+    "isPluggedIn": false
+  }
+}
+```
 
-* Join the [community Discord](https://discord.comma.ai)
-* Check out [the contributing docs](docs/CONTRIBUTING.md)
-* Check out the [openpilot tools](tools/)
-* Code documentation lives at https://docs.comma.ai
-* Information about running openpilot lives on the [community wiki](https://github.com/commaai/openpilot/wiki)
+Unavailable optional fields are omitted. The sender follows no redirects, uses
+short connect/response timeouts, and retries failures with bounded exponential
+backoff. The bearer token is never placed in the JSON body or diagnostic status.
+See the full [backend contract and cadence controls](docs/ev-vehicle-telemetry.md#custom-backend-sending).
 
-Want to get paid to work on openpilot? [comma is hiring](https://comma.ai/jobs#open-positions) and offers lots of [bounties](https://comma.ai/bounties) for external contributors.
+## Use with RangeBridge
 
-Safety and Testing
-----
+In [RangeBridge](https://github.com/LowkeyNEXT/RangeBridge), open **Vehicle Data
+→ Connections → StarPilot Galaxy → Manual**:
 
-* openpilot observes [ISO26262](https://en.wikipedia.org/wiki/ISO_26262) guidelines, see [SAFETY.md](docs/SAFETY.md) for more details.
-* openpilot has software-in-the-loop [tests](.github/workflows/tests.yaml) that run on every commit.
-* The code enforcing the safety model lives in panda and is written in C, see [code rigor](https://github.com/commaai/panda#code-rigor) for more details.
-* panda has software-in-the-loop [safety tests](https://github.com/commaai/panda/tree/master/tests/safety).
-* Internally, we have a hardware-in-the-loop Jenkins test suite that builds and unit tests the various processes.
-* panda has additional hardware-in-the-loop [tests](https://github.com/commaai/panda/blob/master/Jenkinsfile).
-* We run the latest openpilot in a testing closet containing 10 comma devices continuously replaying routes.
+- for LAN mode, put `http://<comma-lan-ip>:7766` in **LAN URL**;
+- for Tailscale, put `https://<device>.<tailnet>.ts.net` in **Portal URL**;
+- paste the generated value into **Bearer token**;
+- leave cookie/session fields blank, then choose **Connect / Refresh**.
 
-<details>
-<summary>MIT Licensed</summary>
+RangeBridge automatically falls back to `/api/vehicle/telemetry` and stores the
+credential in the iOS Keychain. The initial URL/token handoff happens on the
+temporary LAN page; later reads can use the Tailscale URL while driving.
 
-openpilot is released under the MIT license. Some parts of the software are released under other licenses as specified.
+You can verify the same endpoint with curl:
 
-Any user of this software shall indemnify and hold harmless Comma.ai, Inc. and its directors, officers, employees, agents, stockholders, affiliates, subcontractors and customers from and against all allegations, claims, actions, suits, demands, damages, liabilities, obligations, losses, settlements, judgments, costs and expenses (including without limitation attorneys’ fees and costs) which arise out of, relate to or result from any use of this software by user.
+```sh
+curl -H "Authorization: Bearer FETCH_TOKEN" \
+  https://your-device.your-tailnet.ts.net/api/vehicle/telemetry
+```
 
-**THIS IS ALPHA QUALITY SOFTWARE FOR RESEARCH PURPOSES ONLY. THIS IS NOT A PRODUCT.
-YOU ARE RESPONSIBLE FOR COMPLYING WITH LOCAL LAWS AND REGULATIONS.
-NO WARRANTY EXPRESSED OR IMPLIED.**
-</details>
+## DBC and `CarState` requirements
 
-<details>
-<summary>User Data and comma Account</summary>
+Vehicle-specific CAN decoding stays in opendbc. The telemetry service consumes
+only normalized `CarState` fields:
 
-By default, openpilot uploads driving data to our servers. You can also access your data through [comma connect](https://connect.comma.ai/). We use your data to train better models and improve openpilot for everyone.
+| Vehicle information | `CarState` field | Unit/value |
+| --- | --- | --- |
+| Battery SOC | `fuelGauge` | `0.0...1.0` fraction |
+| Distance to empty | `distanceToEmpty` | meters |
+| Actively charging | `charging` | boolean |
+| Charge port/cable connected | `chargingPortConnected` | boolean |
+| Speed | `vEgo` | meters per second |
+| Standstill | `standstill` | boolean |
 
-openpilot is open source software, and users can disable data collection if they wish.
+Stock openpilot v0.11.1 already defines `fuelGauge`, `charging`, `vEgo`, and
+`standstill`. Its unmodified schema does not define `distanceToEmpty` or
+`chargingPortConnected`; the core feature-detects those fields, so it runs on
+stock and includes the richer values on forks that add them.
 
-openpilot logs the road-facing cameras, CAN, GPS, IMU, magnetometer, thermal sensors, crashes, and operating system logs.
-The driver-facing camera and microphone are only logged if you explicitly opt-in in settings.
+For each added DBC signal, document and test its message/bus, start bit, length,
+byte order, signedness, factor, offset, valid range/unit, expected frequency,
+rolling counter/checksum, and validity bits. Convert SOC percentages to a
+fraction and distance units to meters in the vehicle port. Reject stale or
+invalid frames, keep plugged-in separate from actively charging, and validate
+independent cluster/BMS copies when available.
 
-By using openpilot, you agree to [our Privacy Policy](https://comma.ai/privacy). You understand that use of this software or its related services will generate certain types of user data, which may be logged and stored at the sole discretion of comma. By accepting this agreement, you grant an irrevocable, perpetual, worldwide right to comma for the use of this data.
-</details>
+A minimal port needs a useful, nonzero SOC or distance-to-empty value. The core
+rejects non-finite data, SOC outside `0...100%`, DTE outside `0...900 km`, and the
+default all-zero energy shape. See the complete [DBC and integration
+guide](docs/ev-vehicle-telemetry.md#dbc-and-vehicle-port-requirements).
+
+## Modes and configuration
+
+The owner-only configuration is
+`/data/vehicle_telemetry/vehicle_telemetry_config.json`:
+
+| Mode | Behavior |
+| --- | --- |
+| `off` | cache only |
+| `send` | outbound-only delivery to a custom HTTPS backend |
+| `local` | authenticated LAN API on port 7766 by default |
+| `tailscale` | loopback API published by a personal Tailscale Funnel |
+| `frp` | loopback API published through an owner-operated FRP gateway |
+| `galaxy` | reserved for a fork-provided portal adapter such as StarPilot |
+
+The dedicated Tailscale process uses userspace networking, accepts no routes,
+does not change DNS, disables Tailscale SSH, and publishes only the loopback
+telemetry port. A public Funnel still requires the application bearer token;
+tailnet ACLs do not authenticate public Funnel callers.
+
+The HTTP service has four fixed request workers, short socket/header/body limits,
+global and failed-auth rate limiting, a bounded listen queue, and a one-second
+disk-read cache. The daemon and tunnel processes run at nice level 19. This is a
+non-critical convenience service and intentionally favors bounded resource use
+over availability under load.
+
+Full mode configuration, FRP gateway/DNS automation, API details, and security
+behavior are in [the operator guide](docs/ev-vehicle-telemetry.md).
+
+## Compatibility and maintenance
+
+- Baseline: official [`commaai/openpilot` v0.11.1](https://github.com/commaai/openpilot/releases/tag/v0.11.1).
+- Portable package: `system/vehicle_telemetry/` has no StarPilot dependency.
+- Stock glue: one always-running manager entry plus comma 3/3X and comma 4 QR
+  launch actions.
+- StarPilot: the same core can use `starpilotCarState`, native Galaxy settings,
+  external-app pairing, and the existing Galaxy proxy through a thin adapter.
+
+When rebasing onto a newer openpilot release, keep the portable package intact,
+reapply the small manager/UI glue, and run the included tests. Upstream openpilot
+documentation and notices are preserved in [OPENPILOT.md](OPENPILOT.md).
+
+## Safety and license
+
+This is experimental community software, not a comma.ai product or a
+safety-critical service. Telemetry is read-only and must never be used to send
+vehicle commands. The repository retains openpilot's MIT license and upstream
+third-party license notices.
